@@ -1,0 +1,32 @@
+## Firebase
+
+<script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-analytics.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration
+  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+  const firebaseConfig = {
+    apiKey: "AIzaSyB0aHm_UDS25qjhxbcfn2bBLCO2DN19C2g",
+    authDomain: "maritime-nexus.firebaseapp.com",
+    projectId: "maritime-nexus",
+    storageBucket: "maritime-nexus.firebasestorage.app",
+    messagingSenderId: "1061658314302",
+    appId: "1:1061658314302:web:6f3bd1c87b3f2018f1336f",
+    measurementId: "G-BQNJ35KV39"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+  const analytics = getAnalytics(app);
+</script>
+
+
+
+
+
+
+postgres password = dtA\QJQkMj/GmR&L
