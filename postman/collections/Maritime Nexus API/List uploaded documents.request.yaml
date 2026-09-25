@@ -1,0 +1,9 @@
+$kind: http-request
+description: ""
+url: "{{base_url}}/api/v1/documents"
+method: GET
+auth:
+  type: bearer
+  credentials:
+    token: "{{vault:firebase_id_token}}"
+order: 4497622325792361

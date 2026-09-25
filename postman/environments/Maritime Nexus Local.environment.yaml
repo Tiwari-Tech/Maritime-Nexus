@@ -1,0 +1,10 @@
+name: Maritime Nexus Local
+values:
+  - key: base_url
+    value: ''
+  - key: firebase_id_token
+    secret: true
+  - key: firebase_api_key
+    secret: true
+  - key: document_id
+    value: ''

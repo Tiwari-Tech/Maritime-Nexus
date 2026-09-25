@@ -38,4 +38,4 @@ class UserProfileResponse(BaseModel):
     role: str
     is_active: bool
     organization_id: uuid.UUID | None = None
-    created_at: datetime
+    created_at: datetime | None = None

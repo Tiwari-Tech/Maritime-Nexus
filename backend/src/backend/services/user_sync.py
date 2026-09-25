@@ -14,7 +14,7 @@ import logging
 import uuid
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from backend.models.organization import User
 from backend.schemas.auth import FirebaseUser, UserRole
@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 def get_or_create_user(db: Session, firebase_user: FirebaseUser) -> User:
     """Synchronize Firebase identity with the local User record.
 
-    - If the local user exists: update only safe identity fields (email, full_name).
+    - If the local user exists by firebase_uid: update only safe identity fields (email, full_name).
+    - If the local user exists by email: link the verified firebase_uid to that existing user.
     - If the local user does not exist: create with role=viewer, no organization.
 
     Args:
@@ -42,9 +43,10 @@ def get_or_create_user(db: Session, firebase_user: FirebaseUser) -> User:
         logger.warning("Firebase user uid=... has no email — cannot synchronize")
         raise RuntimeError("Firebase user has no email address")
 
-    # Lookup by firebase_uid (the stable identity key)
+    # 1. Lookup by firebase_uid (the primary stable identity key)
     user: User | None = (
         db.query(User)
+        .options(joinedload(User.organization))
         .filter(User.firebase_uid == firebase_user.uid)
         .first()
     )
@@ -70,7 +72,28 @@ def get_or_create_user(db: Session, firebase_user: FirebaseUser) -> User:
                 user = db.query(User).filter(User.firebase_uid == firebase_user.uid).first()
         return user  # type: ignore[return-value]
 
-    # --- Create new user ---
+    # 2. Check if user already exists by verified email (e.g. pre-seeded or invited user)
+    user_by_email: User | None = (
+        db.query(User)
+        .filter(User.email == firebase_user.email)
+        .first()
+    )
+    if user_by_email is not None:
+        user_by_email.firebase_uid = firebase_user.uid
+        if firebase_user.display_name and not user_by_email.full_name:
+            user_by_email.full_name = firebase_user.display_name
+        try:
+            db.commit()
+            db.refresh(user_by_email)
+            logger.info("Linked verified Firebase UID to existing user by email")
+            return user_by_email
+        except IntegrityError:
+            db.rollback()
+            user = db.query(User).filter(User.firebase_uid == firebase_user.uid).first()
+            if user is not None:
+                return user
+
+    # 3. Create new user with least-privileged defaults
     new_user = User(
         id=uuid.uuid4(),
         firebase_uid=firebase_user.uid,

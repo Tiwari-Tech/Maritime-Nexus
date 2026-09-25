@@ -137,7 +137,9 @@ def ingest_document(
             ) from exc
 
         # 7. Reprocessing safety: delete existing chunks for this document
-        db.query(DocumentChunk).filter(DocumentChunk.document_id == doc.id).delete()
+        db.query(DocumentChunk).filter(DocumentChunk.document_id == doc.id).delete(
+            synchronize_session=False
+        )
 
         # 8. Create DocumentChunk records
         chunk_records: list[DocumentChunk] = []

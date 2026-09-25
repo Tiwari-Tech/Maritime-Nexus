@@ -1,0 +1,14 @@
+$kind: http-request
+description: ""
+url: "{{base_url}}/readiness"
+method: GET
+body:
+  type: json
+  content: "{\r
+
+    \  \"status\": \"ready\",\r
+
+    \  \"database\": \"connected\"\r
+
+    }"
+order: 2730893511206934

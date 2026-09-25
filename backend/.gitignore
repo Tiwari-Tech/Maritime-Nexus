@@ -13,3 +13,14 @@ wheels/
 .env
 .env.*
 !.env.example
+
+# Test and lint caches
+.pytest_cache/
+.ruff_cache/
+
+# Credentials and secrets
+*credentials*.json
+*service_account*.json
+*service-account*.json
+*.pem
+*.key

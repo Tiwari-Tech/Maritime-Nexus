@@ -19,14 +19,22 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
+from starlette.concurrency import run_in_threadpool
 
-from backend.api.dependencies import get_current_org, get_current_user
+from backend.api.dependencies import (
+    get_current_org,
+    get_current_user,
+    require_manager_or_above,
+    require_operator_or_above,
+)
 from backend.core.config import settings
 from backend.db.session import get_db
 from backend.models.contract import Contract
 from backend.models.document import Document, DocumentVersion
 from backend.models.organization import Organization, User
+from backend.models.vessel import Vessel
+from backend.models.voyage import Voyage
 from backend.schemas.auth import UserRole
 from backend.schemas.document import (
     DocumentDeleteResponse,
@@ -64,7 +72,7 @@ async def upload_document(
     vessel_id: uuid.UUID | None = Form(None, description="Associated vessel ID"),
     voyage_id: uuid.UUID | None = Form(None, description="Associated voyage ID"),
     contract_id: uuid.UUID | None = Form(None, description="Associated contract ID"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_operator_or_above),
     current_org: Organization = Depends(get_current_org),
     db: Session = Depends(get_db),
 ) -> Document:
@@ -72,6 +80,7 @@ async def upload_document(
 
     - Validates PDF format and magic bytes.
     - Validates file size against configured limit.
+    - Validates that associated vessel and voyage belong to the organization.
     - Uploads file bytes to the organization's private GCS bucket path.
     - Creates Document and DocumentVersion v1 records.
     - Automatically cleans up GCS storage if database persistence fails.
@@ -81,6 +90,38 @@ async def upload_document(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Filename is required",
         )
+
+    # 0. Validate relational foreign keys if supplied
+    if vessel_id:
+        vessel = (
+            db.query(Vessel)
+            .filter(
+                Vessel.id == vessel_id,
+                Vessel.organization_id == current_org.id,
+            )
+            .first()
+        )
+        if not vessel:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Associated vessel not found within organization",
+            )
+
+    if voyage_id:
+        voyage = (
+            db.query(Voyage)
+            .join(Vessel, Voyage.vessel_id == Vessel.id)
+            .filter(
+                Voyage.id == voyage_id,
+                Vessel.organization_id == current_org.id,
+            )
+            .first()
+        )
+        if not voyage:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Associated voyage not found within organization",
+            )
 
     # 1. Read file contents and validate size
     max_size_bytes = settings.MAX_DOCUMENT_SIZE_MB * 1024 * 1024
@@ -114,7 +155,12 @@ async def upload_document(
     # 4. Upload to Google Cloud Storage
     blob_name = build_gcs_blob_name(current_org.id, document_id, clean_filename)
     try:
-        gcs_uri = upload_document_bytes(blob_name, content, content_type="application/pdf")
+        gcs_uri = await run_in_threadpool(
+            upload_document_bytes,
+            blob_name,
+            content,
+            content_type="application/pdf",
+        )
     except Exception as exc:
         logger.error("GCS upload failed for document %s: %s", document_id, type(exc).__name__)
         raise HTTPException(
@@ -264,6 +310,7 @@ def get_document(
     """Retrieve full metadata for a document belonging to the authenticated organization."""
     doc = (
         db.query(Document)
+        .options(selectinload(Document.versions))
         .filter(
             Document.id == document_id,
             Document.organization_id == current_org.id,
@@ -341,18 +388,11 @@ def get_document_download_url(
 )
 def delete_document(
     document_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_manager_or_above),
     current_org: Organization = Depends(get_current_org),
     db: Session = Depends(get_db),
 ) -> DocumentDeleteResponse:
     """Delete a document and its GCS object. Restricted to Admin and Manager roles."""
-    # RBAC check: only admin and manager can delete documents
-    if current_user.role not in (UserRole.ADMIN, UserRole.MANAGER):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions to delete documents",
-        )
-
     doc = (
         db.query(Document)
         .filter(
@@ -397,12 +437,14 @@ def delete_document(
 )
 def trigger_document_ingestion(
     document_id: uuid.UUID,
+    current_user: User = Depends(require_operator_or_above),
     current_org: Organization = Depends(get_current_org),
     db: Session = Depends(get_db),
 ) -> IngestionResponse:
     """Download PDF from GCS, extract text, chunk, embed with BGE-M3, and persist in pgvector.
 
     Scraped and embedded chunks are scoped to the authenticated organization.
+    Restricted to Operator, Manager, and Admin roles.
     """
     result = ingest_document(document_id, current_org.id, db)
     return IngestionResponse(

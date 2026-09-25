@@ -10,7 +10,6 @@ import os
 import re
 import uuid
 from pathlib import Path
-from typing import BinaryIO
 
 from google.cloud import storage
 from google.cloud.exceptions import NotFound
@@ -117,11 +116,11 @@ def download_document_bytes(blob_name: str) -> bytes:
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
 
-    if not blob.exists():
+    try:
+        logger.info("Downloading document from GCS: gs://%s/%s", bucket_name, blob_name)
+        return blob.download_as_bytes()
+    except NotFound:
         raise FileNotFoundError(f"Document blob gs://{bucket_name}/{blob_name} does not exist in GCS")
-
-    logger.info("Downloading document from GCS: gs://%s/%s", bucket_name, blob_name)
-    return blob.download_as_bytes()
 
 
 def delete_document_blob(blob_name: str) -> bool:

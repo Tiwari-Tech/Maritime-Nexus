@@ -1,0 +1,18 @@
+$kind: http-request
+description: ""
+url: https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={{firebase_api_key}}
+method: POST
+queryParams:
+  key: "{{firebase_api_key}}"
+body:
+  type: json
+  content: "{\r
+
+    \    \"email\": \"somesh@gmail.com\",\r
+
+    \    \"password\": \"Somesh@007\",\r
+
+    \    \"returnSecureToken\": true\r
+
+    }"
+order: 487909451037459

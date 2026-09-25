@@ -5,6 +5,7 @@ user's organization.
 """
 
 import logging
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -39,6 +40,7 @@ def search_document_chunks(
     db: Session,
     document_id: uuid.UUID | None = None,
     top_k: int | None = None,
+    timings: dict[str, float] | None = None,
 ) -> list[SearchResultItem]:
     """Retrieve the most semantically relevant document chunks using pgvector.
 
@@ -51,12 +53,16 @@ def search_document_chunks(
         db: Active SQLAlchemy session.
         document_id: Optional filter to restrict search to a specific document.
         top_k: Number of results to return (capped by RAG_MAX_TOP_K).
+        timings: Optional dictionary to record fine-grained diagnostic timings.
 
     Returns:
         List of SearchResultItem ordered by semantic similarity descending.
     """
     clean_query = query.strip()
     if not clean_query:
+        if timings is not None:
+            timings["embedding"] = 0.0
+            timings["retrieval"] = 0.0
         return []
 
     # Enforce bounds on top_k
@@ -64,14 +70,24 @@ def search_document_chunks(
     k = max(1, min(k, settings.RAG_MAX_TOP_K))
 
     # 1. Generate query embedding via BGE-M3
+    t_embed_start = time.perf_counter()
     query_vector = get_query_embedding(clean_query)
+    t_embed_end = time.perf_counter()
+    if timings is not None:
+        timings["embedding"] = t_embed_end - t_embed_start
 
     # 2. Build pgvector query with organization scoping
+    t_retrieval_start = time.perf_counter()
     distance_col = DocumentChunk.embedding.cosine_distance(query_vector).label("distance")
 
     stmt = (
         db.query(
-            DocumentChunk,
+            DocumentChunk.id,
+            DocumentChunk.document_id,
+            DocumentChunk.chunk_index,
+            DocumentChunk.page_number,
+            DocumentChunk.content,
+            DocumentChunk.extra_metadata,
             Document.title.label("document_title"),
             distance_col,
         )
@@ -87,23 +103,26 @@ def search_document_chunks(
 
     # Order by cosine distance ascending (closest match first)
     rows = stmt.order_by(distance_col).limit(k).all()
+    t_retrieval_end = time.perf_counter()
+    if timings is not None:
+        timings["retrieval"] = t_retrieval_end - t_retrieval_start
 
     results: list[SearchResultItem] = []
-    for chunk, doc_title, distance in rows:
+    for chunk_id, doc_id, chunk_index, page_number, content, extra_metadata, doc_title, distance in rows:
         # Cosine distance ranges from 0 (identical) to 2 (opposite); cosine similarity = 1 - distance
         dist_float = float(distance) if distance is not None else 1.0
         similarity = round(max(0.0, 1.0 - dist_float), 4)
 
         results.append(
             SearchResultItem(
-                chunk_id=chunk.id,
-                document_id=chunk.document_id,
+                chunk_id=chunk_id,
+                document_id=doc_id,
                 document_title=doc_title,
-                chunk_index=chunk.chunk_index,
-                page_number=chunk.page_number,
-                content=chunk.content,
+                chunk_index=chunk_index,
+                page_number=page_number,
+                content=content,
                 similarity_score=similarity,
-                metadata=chunk.extra_metadata or {},
+                metadata=extra_metadata or {},
             )
         )
 

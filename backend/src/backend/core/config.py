@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import quote_plus
 
 from dotenv import dotenv_values
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from pydantic_settings import (
     BaseSettings,
     DotEnvSettingsSource,
@@ -77,6 +77,23 @@ class Settings(BaseSettings):
     DESCRIPTION: str = "AI Maritime Operations & Contract Intelligence Copilot API"
     ENVIRONMENT: str = "development"
 
+    # CORS Configuration
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: str | list[str]) -> list[str]:
+        if isinstance(v, str) and not v.startswith("["):
+            origins = [i.strip() for i in v.split(",") if i.strip()]
+        elif isinstance(v, (list, tuple)):
+            origins = [str(i).strip() for i in v if str(i).strip()]
+        else:
+            return v
+        return [o.rstrip("/") for o in origins]
+
     # Database Configuration (Cloud SQL PostgreSQL)
     DATABASE_NAME: str = "maritime_nexus"
     DB_USER: str = "postgres"
@@ -86,6 +103,7 @@ class Settings(BaseSettings):
     # Host and port for TCP connections (defaults to Cloud SQL Auth Proxy on 127.0.0.1:5432)
     DB_HOST: str | None = None
     DB_PORT: int | None = None
+    DB_CONNECT_TIMEOUT: int = 10
 
     # Connection pool configuration
     DB_POOL_SIZE: int = 5
@@ -100,6 +118,9 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     EMBEDDING_MODEL: str = "bge-m3"
     EMBEDDING_DIMENSION: int = 1024
+    QWEN_MODEL: str = "gemma3:1b"
+    OLLAMA_LLM_TIMEOUT_SECONDS: int = 120
+    OLLAMA_NUM_PREDICT: int = 512
 
     # RAG Chunking & Retrieval Configuration
     RAG_CHUNK_SIZE: int = 1000

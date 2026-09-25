@@ -11,7 +11,11 @@ engine = create_engine(
     pool_size=settings.DB_POOL_SIZE,
     max_overflow=settings.DB_MAX_OVERFLOW,
     pool_recycle=settings.DB_POOL_RECYCLE,
+    pool_timeout=10,
     echo=settings.DB_ECHO,
+    connect_args={
+        "connect_timeout": settings.DB_CONNECT_TIMEOUT,
+    },
 )
 
 SessionLocal = sessionmaker(
@@ -21,17 +25,23 @@ SessionLocal = sessionmaker(
 )
 
 
-def get_db() -> Generator[Session, None, None]:
+def get_db() -> Generator[Session]:
     """FastAPI dependency that provides a transactional database session."""
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
 
 def check_db_connection() -> bool:
     """Execute a lightweight query to test database connectivity."""
-    with engine.connect() as connection:
-        result = connection.execute(text("SELECT 1"))
-        return result.scalar() == 1
+    try:
+        with engine.connect() as connection:
+            result = connection.execute(text("SELECT 1"))
+            return result.scalar() == 1
+    except Exception:
+        return False

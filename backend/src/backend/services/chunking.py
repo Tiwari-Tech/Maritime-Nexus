@@ -56,16 +56,20 @@ def _split_long_paragraph(paragraph: str, max_chars: int) -> list[str]:
             if len(s) > max_chars:
                 # If a single sentence exceeds max_chars, split on word boundaries
                 words = s.split()
-                w_current = ""
+                w_pieces: list[str] = []
+                w_len = 0
                 for w in words:
-                    if len(w_current) + len(w) + 1 <= max_chars:
-                        w_current = f"{w_current} {w}" if w_current else w
+                    add_len = len(w) + (1 if w_pieces else 0)
+                    if w_len + add_len <= max_chars:
+                        w_pieces.append(w)
+                        w_len += add_len
                     else:
-                        if w_current:
-                            pieces.append(w_current)
-                        w_current = w
-                if w_current:
-                    pieces.append(w_current)
+                        if w_pieces:
+                            pieces.append(" ".join(w_pieces))
+                        w_pieces = [w]
+                        w_len = len(w)
+                if w_pieces:
+                    pieces.append(" ".join(w_pieces))
                 current = ""
             else:
                 current = s

@@ -1,0 +1,9 @@
+$kind: http-request
+description: ""
+url: "{{base_url}}/api/v1/documents/4733f3ed-9c10-4dbb-9c53-4908da80aa52/download"
+method: GET
+auth:
+  type: bearer
+  credentials:
+    token: "{{vault:firebase_id_token}}"
+order: 4501352651400661

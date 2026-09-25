@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{base_url}}/health"
+method: GET
+body:
+  type: json
+  content: "{\r
+
+    \  \"status\": \"ok\",\r
+
+    \  \"service\": \"Maritime Nexus API\",\r
+
+    \  \"version\": \"0.1.0\"\r
+
+    }"
+order: 1789909126796

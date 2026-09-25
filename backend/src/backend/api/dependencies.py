@@ -12,10 +12,12 @@ SECURITY:
 """
 
 import logging
+import time
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
+from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.orm import Session
 
 from backend.core.security import get_current_firebase_user
@@ -28,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_current_user(
+    request: Request,
     firebase_user: FirebaseUser = Depends(get_current_firebase_user),
     db: Session = Depends(get_db),
 ) -> User:
@@ -35,11 +38,37 @@ def get_current_user(
 
     Raises:
         HTTPException 401: if the user account is deactivated.
+        HTTPException 503: if the database service is unavailable.
     """
+    is_auth_me = request.url.path.endswith("/auth/me")
+    t_sync_start = time.perf_counter()
+    if is_auth_me:
+        logger.info("Auth /me: database user sync started")
+
     try:
         user = get_or_create_user(db, firebase_user)
+        t_sync = time.perf_counter() - t_sync_start
+        if is_auth_me:
+            logger.info("Auth /me: database user sync completed in %.3fs", t_sync)
+    except (OperationalError, DatabaseError) as db_exc:
+        t_sync = time.perf_counter() - t_sync_start
+        logger.error(
+            "Auth /me: database user sync failed after %.3fs: %s",
+            t_sync,
+            type(db_exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database service temporarily unavailable",
+        ) from db_exc
     except RuntimeError as exc:
-        logger.warning("User synchronization error: %s", exc)
+        t_sync = time.perf_counter() - t_sync_start
+        if is_auth_me:
+            logger.warning(
+                "Auth /me: user synchronization error after %.3fs: %s",
+                t_sync,
+                exc,
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User account not authorized",
@@ -69,7 +98,17 @@ def get_current_org(
             detail="Organization access required",
         )
 
-    org: Organization | None = (
+    # Fast path: organization already eagerly loaded with current_user
+    org = current_user.organization
+    if org is not None:
+        if not org.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Organization access required",
+            )
+        return org
+
+    org = (
         db.query(Organization)
         .filter(
             Organization.id == current_user.organization_id,
